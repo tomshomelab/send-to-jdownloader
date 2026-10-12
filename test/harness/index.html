@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>popup harness</title>
+  <link rel="stylesheet" href="/extension/popup.css">
+  <style>
+    body { max-width: 420px; margin: 20px auto; border: 1px solid #475569; }
+    #log { font: 12px monospace; white-space: pre-wrap; padding: 8px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <main id="app"></main>
+  <div id="log"></div>
+  <script>
+    // Minimal WebExtension stub so popup.js/options.js/background.js run in a normal page.
+    const store = {};
+    let listener = null;
+    const log = (...a) => { document.getElementById('log').textContent += a.join(' ') + '\n'; };
+    window.browser = {
+      storage: { local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); log('store.set', JSON.stringify(o)); } } },
+      runtime: {
+        onMessage: { addListener: (fn) => { listener = fn; } },
+        sendMessage: async (m) => { log('msg', m.type); return listener(m); },
+        getURL: (p) => p,
+      },
+      tabs: {
+        query: async () => [{ id: 1, url: 'https://example.com/watch?v=1', title: 'Example video page' }],
+        executeScript: async (tabId, opts) => (window.__frames || []),
+      },
+    };
+    window.__frames = [
+      { page: 'https://example.com/watch?v=1', title: 'Example video page', top: true, blob: false,
+        candidates: [{ url: 'https://cdn.example.com/v.mp4', kind: 'video', score: 9000 }, { url: 'https://example.com/embed/1', kind: 'embed', score: 1200 }] },
+    ];
+  </script>
+  <script src="/extension/myjd.js"></script>
+  <script src="/extension/background.js"></script>
+  <script>
+    // Pull the popup's markup in, then run its scripts.
+    fetch('/extension/popup.html').then((r) => r.text()).then((html) => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      document.getElementById('app').innerHTML = doc.getElementById('app').innerHTML;
+      for (const src of ['/extension/options.js', '/extension/popup.js']) {
+        const s = document.createElement('script'); s.src = src; s.async = false; document.body.appendChild(s);
+      }
+    });
+  </script>
+</body>
+</html>

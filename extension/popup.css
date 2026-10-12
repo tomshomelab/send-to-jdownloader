@@ -1,0 +1,43 @@
+:root {
+  --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8;
+  --accent: #38bdf8; --accent-text: #0f172a; --ok: #22c55e; --err: #f87171; --warn: #fbbf24;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b; --accent: #0284c7; --accent-text: #ffffff; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { min-width: 320px; max-width: 100vw; }
+#app { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+header { display: flex; align-items: center; gap: 10px; }
+header h1 { font-size: 17px; margin: 0; flex: 1; }
+header a { color: var(--muted); text-decoration: none; font-size: 22px; padding: 4px 8px; }
+.card { background: var(--card); border-radius: 10px; padding: 10px 12px; }
+.card.warn { border-left: 4px solid var(--warn); }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 4px; }
+.url { word-break: break-all; font-size: 13px; }
+.muted { color: var(--muted); font-size: 13px; }
+select { width: 100%; font-size: 13px; padding: 8px; border-radius: 8px; border: 1px solid #334155; background: var(--bg); color: var(--text); }
+.buttons { display: flex; flex-direction: column; gap: 8px; }
+button { font: inherit; font-weight: 600; padding: 14px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); }
+button:disabled { opacity: .4; cursor: default; }
+.status { padding: 10px 12px; border-radius: 10px; background: var(--card); font-size: 14px; word-break: break-word; }
+.status.ok { border-left: 4px solid var(--ok); }
+.status.err { border-left: 4px solid var(--err); }
+.hidden { display: none !important; }
+
+/* settings form (used in the popup's settings view and options.html) */
+label.field { display: block; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+input[type=text], input[type=email], input[type=password], input[type=number] {
+  width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: var(--bg); color: var(--text);
+}
+.row { display: flex; gap: 8px; align-items: center; }
+.row input[type=number] { width: 110px; }
+.radio { display: flex; gap: 8px; align-items: center; padding: 10px 0; font-weight: 600; }
+.check { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.check input { width: 20px; height: 20px; }
+.small { font-size: 12px; color: var(--muted); margin-top: 6px; word-break: break-word; }
+.card button { margin-top: 10px; }
+h2 { font-size: 15px; margin: 0 0 4px; }
+code { font-size: 12px; }

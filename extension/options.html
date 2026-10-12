@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send to JDownloader – Settings</title>
+  <link rel="stylesheet" href="popup.css">
+  <style> body { max-width: 560px; margin: 0 auto; } </style>
+</head>
+<body>
+  <main id="app">
+    <header>
+      <img src="icons/icon.svg" alt="" width="28" height="28">
+      <h1>Settings</h1>
+    </header>
+
+    <div class="card">
+      <h2>How to reach JDownloader</h2>
+      <label class="radio"><input type="radio" name="backend" value="myjd"> My.JDownloader (works anywhere, incl. mobile data)</label>
+      <label class="radio"><input type="radio" name="backend" value="cnl"> Local Click'n'Load (same Wi-Fi / VPN only)</label>
+    </div>
+
+    <div class="card" id="myjd-card">
+      <h2>My.JDownloader account</h2>
+      <p class="small">Same login as JDownloader → Settings → My.JDownloader on the PC. The password is only used once to derive the API secrets and is not stored.</p>
+      <label class="field" for="myjd-email">Email</label>
+      <input type="email" id="myjd-email" autocomplete="username">
+      <label class="field" for="myjd-password">Password</label>
+      <input type="password" id="myjd-password" autocomplete="current-password">
+      <button id="myjd-connect" class="primary">Save &amp; connect</button>
+      <div id="myjd-state" class="small"></div>
+
+      <label class="field" for="myjd-device">JDownloader to send to</label>
+      <div class="row">
+        <select id="myjd-device" style="flex:1"></select>
+        <button id="myjd-refresh" style="margin:0">↻</button>
+      </div>
+    </div>
+
+    <div class="card" id="cnl-card">
+      <h2>Local Click'n'Load</h2>
+      <p class="small">JDownloader listens on port 9666 on the PC. In JDownloader: Settings → Advanced Settings → search <code>localhostonly</code> → untick it for the Deprecated API (Click'n'Load), then restart JDownloader. The phone must be on the same network or a VPN (e.g. Tailscale) to the PC.</p>
+      <label class="field" for="cnl-host">PC IP address or hostname</label>
+      <div class="row">
+        <input type="text" id="cnl-host" placeholder="192.168.0.10" style="flex:1">
+        <input type="number" id="cnl-port" value="9666" min="1" max="65535">
+      </div>
+      <button id="cnl-test">Test connection</button>
+      <div id="cnl-state" class="small"></div>
+    </div>
+
+    <div class="card">
+      <h2>Behaviour</h2>
+      <label class="check"><input type="checkbox" id="autostart"> Start downloading immediately (otherwise links wait in LinkGrabber)</label>
+      <label class="check"><input type="checkbox" id="packageFromTitle"> Use the page title as the package name</label>
+      <button id="save" class="primary">Save</button>
+      <div id="save-state" class="small"></div>
+    </div>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>
