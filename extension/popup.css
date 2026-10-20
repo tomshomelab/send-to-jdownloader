@@ -22,7 +22,16 @@ select { width: 100%; font-size: 13px; padding: 8px; border-radius: 8px; border:
 button { font: inherit; font-weight: 600; padding: 14px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
 button.primary { background: var(--accent); color: var(--accent-text); }
 button:disabled { opacity: .4; cursor: default; }
-.status { padding: 10px 12px; border-radius: 10px; background: var(--card); font-size: 14px; word-break: break-word; }
+.status { padding: 10px 12px; border-radius: 10px; background: var(--card); font-size: 14px; word-break: break-word; white-space: pre-line; }
+#send-smart:not(.hidden) ~ #send-page { background: transparent; color: var(--accent); }
+.list { max-height: 45vh; overflow-y: auto; margin: 8px 0; border-top: 1px solid #334155; }
+.list label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 2px; border-bottom: 1px solid #334155; font-size: 13px; }
+.list input { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.list .t { word-break: break-word; }
+.list .u { color: var(--muted); font-size: 11px; word-break: break-all; }
+.list-tools { margin-top: 4px; }
+button.small-btn { padding: 8px 10px; font-size: 13px; margin: 0; flex: 1; }
+#list-card #send-list { width: 100%; margin-top: 4px; }
 .status.ok { border-left: 4px solid var(--ok); }
 .status.err { border-left: 4px solid var(--err); }
 .hidden { display: none !important; }

@@ -159,9 +159,12 @@
       return data.data !== undefined ? data.data : data;
     }
 
-    async addLinks(deviceId, { links, packageName = null, autostart = false, destinationFolder = null, downloadPassword = null, extractPassword = null }) {
+    /* Returns the collecting job, e.g. { id: 1700000000123 }. With assignJobID the crawled links
+       carry that id, so queryJobLinks() can find exactly this batch. sourceUrl becomes the
+       referrer JDownloader uses when it requests the links. */
+    async addLinks(deviceId, { links, packageName = null, autostart = false, destinationFolder = null, downloadPassword = null, extractPassword = null, sourceUrl = null, assignJobID = false }) {
       const list = Array.isArray(links) ? links : [links];
-      return this.call(deviceId, '/linkgrabberv2/addLinks', {
+      const query = {
         links: list.join('\n'),
         packageName,
         autostart,
@@ -170,7 +173,44 @@
         extractPassword,
         priority: 'DEFAULT',
         overwritePackagizerRules: false,
+      };
+      if (sourceUrl) query.sourceUrl = sourceUrl;
+      if (assignJobID) query.assignJobID = true;
+      return this.call(deviceId, '/linkgrabberv2/addLinks', query);
+    }
+
+    /* LinkGrabber links that came from one addLinks job, with their online status. */
+    async queryJobLinks(deviceId, jobId) {
+      const links = await this.call(deviceId, '/linkgrabberv2/queryLinks', {
+        jobUUIDs: [jobId],
+        availability: true,
+        bytesTotal: true,
+        url: true,
+        host: true,
+        status: true,
+        maxResults: -1,
+        startAt: 0,
       });
+      return Array.isArray(links) ? links : [];
+    }
+
+    /* Crawler state for a job: [{ jobId, crawling, checking, crawled, broken, ... }] */
+    async queryCrawlerJobs(deviceId, jobId) {
+      const jobs = await this.call(deviceId, '/linkgrabberv2/queryLinkCrawlerJobs', { jobIds: [jobId], collectorInfo: true });
+      return Array.isArray(jobs) ? jobs : [];
+    }
+
+    /* JDownloader's default download folder, e.g. "/output" in the Docker image. */
+    async getDefaultDownloadFolder(deviceId) {
+      return this.call(deviceId, '/config/get', 'org.jdownloader.settings.GeneralSettings', null, 'DefaultDownloadFolder');
+    }
+
+    async removeLinks(deviceId, linkIds, packageIds = []) {
+      return this.call(deviceId, '/linkgrabberv2/removeLinks', linkIds, packageIds);
+    }
+
+    async moveToDownloadlist(deviceId, linkIds, packageIds = []) {
+      return this.call(deviceId, '/linkgrabberv2/moveToDownloadlist', linkIds, packageIds);
     }
   }
 

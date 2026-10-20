@@ -126,6 +126,19 @@ On any page: ⋮ → **Extensions** → **Send to JDownloader**. The popup shows
   more than one it shows a dropdown, best guess first. *Queue video URL* sends that.
 - *Queue both* sends page and video together in one package.
 
+**Find the working link** (My.JDownloader only) sends the page plus every video candidate to
+JDownloader in one batch, with the page as the source/referrer. JDownloader checks each one;
+the extension then removes the offline ones (and bare `.html` page results when a real file was
+found), so only links that will actually download are left.
+
+**Videos listed on this page** appears on galleries, channels, search results and playlists.
+The extension groups the page's links by URL shape and keeps the group that looks like a
+video grid (thumbnails, durations, `/video/`, `/watch?v=` and similar). Playlist parameters are
+stripped so each entry is exactly one video. Tick the ones you want (everything is ticked on a
+gallery page; nothing is ticked on a watch page, where the list is usually "related videos") and
+**Send to their own folder**: each video is checked by JDownloader, broken ones are removed, and
+the rest download into `<JDownloader download folder>/<page title>`.
+
 Links land in JDownloader's **LinkGrabber** (queued, not started) unless you tick
 *Start downloading immediately* in settings. The page title becomes the package name.
 

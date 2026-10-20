@@ -14,14 +14,20 @@
   <div id="log"></div>
   <script>
     // Minimal WebExtension stub so popup.js/options.js/background.js run in a normal page.
-    const store = {};
-    let listener = null;
+    const store = { backend: 'myjd', myjd: { email: 'u@example.com', loginSecret: 'aa', deviceSecret: 'bb', deviceId: 'dev1', deviceName: 'JD' } };
+    const listeners = [];
     const log = (...a) => { document.getElementById('log').textContent += a.join(' ') + '\n'; };
     window.browser = {
       storage: { local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); log('store.set', JSON.stringify(o)); } } },
       runtime: {
-        onMessage: { addListener: (fn) => { listener = fn; } },
-        sendMessage: async (m) => { log('msg', m.type); return listener(m); },
+        onMessage: { addListener: (fn) => { listeners.push(fn); } },
+        // Like Firefox: every listener sees the message, the first one that returns a promise answers.
+        sendMessage: async (m) => {
+          log('msg', m.type);
+          let answer;
+          for (const fn of listeners) { const r = fn(m); if (answer === undefined && r !== undefined) answer = r; }
+          return answer;
+        },
         getURL: (p) => p,
       },
       tabs: {
@@ -29,10 +35,13 @@
         executeScript: async (tabId, opts) => (window.__frames || []),
       },
     };
-    window.__frames = [
-      { page: 'https://example.com/watch?v=1', title: 'Example video page', top: true, blob: false,
-        candidates: [{ url: 'https://cdn.example.com/v.mp4', kind: 'video', score: 9000 }, { url: 'https://example.com/embed/1', kind: 'embed', score: 1200 }] },
-    ];
+    const scenario = new URLSearchParams(location.search).get('scenario') || 'watch';
+    const related = Array.from({ length: 6 }, (_, i) => ({ url: 'https://example.com/video/' + (100 + i) + '/clip-' + i, title: 'Related clip ' + i }));
+    window.__frames = scenario === 'gallery'
+      ? [{ page: 'https://example.com/channel/cats', title: 'Cats channel', top: true, blob: false, candidates: [], items: related }]
+      : [{ page: 'https://example.com/watch?v=1', title: 'Example video page', top: true, blob: false,
+          candidates: [{ url: 'https://cdn.example.com/v.mp4', kind: 'video', score: 9000 }, { url: 'https://example.com/embed/1', kind: 'embed', score: 1200 }], items: related }];
+    if (scenario === 'gallery') browser.tabs.query = async () => [{ id: 1, url: 'https://example.com/channel/cats', title: 'Cats channel' }];
   </script>
   <script src="/extension/myjd.js"></script>
   <script src="/extension/background.js"></script>

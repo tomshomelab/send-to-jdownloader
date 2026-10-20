@@ -37,7 +37,20 @@
         <div id="video-blob" class="muted hidden">The player uses a blob/stream source, which cannot be downloaded directly. Send the page URL.</div>
       </div>
 
+      <div class="card hidden" id="list-card">
+        <div class="label">Videos listed on this page <span id="list-count" class="muted"></span></div>
+        <div class="row list-tools">
+          <button id="list-all" class="small-btn">Select all</button>
+          <button id="list-none" class="small-btn">Select none</button>
+        </div>
+        <div id="list-items" class="list"></div>
+        <button id="send-list" class="primary">Send selected videos to their own folder</button>
+        <div class="muted" id="list-hint">Each video is sent as its own link. JDownloader checks them, removes any it can't download, and saves the rest in a folder named after this page.</div>
+      </div>
+
       <div class="buttons">
+        <button id="send-smart" class="primary hidden">Find the working link</button>
+        <div id="smart-hint" class="muted hidden">JDownloader tests the page and every video link found, then keeps only the ones it can download.</div>
         <button id="send-page" class="primary">Queue page URL</button>
         <button id="send-video">Queue video URL</button>
         <button id="send-both">Queue both</button>
