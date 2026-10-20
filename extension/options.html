@@ -53,7 +53,10 @@
       <h2>Behaviour</h2>
       <label class="check"><input type="checkbox" id="autostart"> Start downloading immediately (otherwise links wait in LinkGrabber)</label>
       <label class="check"><input type="checkbox" id="packageFromTitle"> Use the page title as the package name</label>
-      <label class="check"><input type="checkbox" id="videosOnly"> Videos only: remove thumbnails, text files and web pages that come with a video</label>
+      <label class="check"><input type="checkbox" id="videosOnly"> Videos only: remove thumbnails, text files, web pages and duplicate formats that come with a video</label>
+      <label class="check"><input type="checkbox" id="allowFrame"> Load a video page in a hidden frame when its source has no video link (same site only)</label>
+      <label class="field" for="maxPages">Most pages to follow when collecting a list</label>
+      <input type="number" id="maxPages" min="1" max="50" value="10">
       <button id="save" class="primary">Save</button>
       <div id="save-state" class="small"></div>
     </div>

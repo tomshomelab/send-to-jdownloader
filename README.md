@@ -139,6 +139,30 @@ gallery page; nothing is ticked on a watch page, where the list is usually "rela
 **Send to their own folder**: each video is checked by JDownloader, broken ones are removed, and
 the rest download into `<JDownloader download folder>/<page title>`.
 
+### Video lists (1.0.5)
+
+On a page that lists videos, the popup starts a **video list**. It is kept in the extension's
+memory, so it is still there when you reopen the popup, even from another page, until you
+clear it, close Firefox or leave it unused for an hour. It is never written to storage.
+
+- **Collect next pages** follows the page's "next" control, up to the page limit in settings.
+  It handles real next links, pages drawn by scripts (rendered in a hidden same-site frame) and
+  script-only "Next" buttons (pressed in place). It also reads lists drawn inside web components
+  (shadow DOM). It says why it stopped.
+- **Gather video links (test)** opens nothing and sends nothing. It visits each ticked video's
+  page from the phone: first a fetch made as the page itself (your private session), then, if
+  the source has no video, a hidden same-site frame so the player script can run. Each video
+  shows what was found and how.
+- **Send ticked videos** tries, per video: (1) JDownloader's site handler, (2) JDownloader's deep
+  link analysis, (3) the links the phone gathered (gathering first if needed). Each attempt is
+  job-tracked, failures are cleaned out of LinkGrabber, and the deep/phone fallbacks keep only
+  the largest video so previews and related clips are dropped. Everything lands in one folder
+  named after the list page. A report shows how many were queued by each method, which were
+  already in JDownloader, and why the rest failed.
+
+Hidden *tabs* are deliberately not used: Firefox for Android cannot open a truly private
+background tab for an extension, so a hidden tab could leak into normal browsing.
+
 Every My.JDownloader send waits for JDownloader's verdict before reporting. The popup lists
 what actually landed, or explains why nothing did: no handler for that link, already in the
 list, hidden by a Link Filter rule, or broken. Direct video file links are sent as

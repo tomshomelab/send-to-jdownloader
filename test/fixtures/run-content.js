@@ -1,5 +1,5 @@
 // Runs extension/content.js against the current fixture page and prints what it found.
-fetch('/extension/content.js').then((r) => r.text()).then((src) => {
+fetch('/extension/detect.js').then((r) => r.text()).then((d) => { (0, eval)(d); return fetch('/extension/content.js'); }).then((r) => r.text()).then((src) => {
   const out = (0, eval)(src);
   const pre = document.createElement('pre');
   pre.id = 'result';

@@ -16,7 +16,8 @@
   "background": {
     "scripts": [
       "myjd.js",
-      "background.js"
+      "background.js",
+      "session.js"
     ],
     "persistent": true
   },

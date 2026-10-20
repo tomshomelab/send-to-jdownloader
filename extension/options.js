@@ -45,6 +45,8 @@
     $('autostart').checked = !!s.autostart;
     $('packageFromTitle').checked = s.packageFromTitle !== false;
     $('videosOnly').checked = s.videosOnly !== false;
+    $('allowFrame').checked = s.allowFrame !== false;
+    $('maxPages').value = s.maxPages || 10;
     $('myjd-state').textContent = s.myjd.loginSecret ? `Connected as ${s.myjd.email}.` : 'Not connected yet.';
     if (s.myjd.deviceId) fillDevices([{ id: s.myjd.deviceId, name: s.myjd.deviceName || s.myjd.deviceId }], s.myjd.deviceId);
     else fillDevices([], '');
@@ -62,6 +64,8 @@
       autostart: $('autostart').checked,
       packageFromTitle: $('packageFromTitle').checked,
       videosOnly: $('videosOnly').checked,
+      allowFrame: $('allowFrame').checked,
+      maxPages: Math.max(1, Math.min(Number($('maxPages').value) || 10, 50)),
       myjd: { ...s.myjd, deviceId: opt && opt.value ? opt.value : s.myjd.deviceId, deviceName: opt && opt.value ? opt.dataset.name : s.myjd.deviceName },
     };
     await msg({ type: 'saveSettings', settings });

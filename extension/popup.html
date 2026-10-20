@@ -39,14 +39,25 @@
       </div>
 
       <div class="card hidden" id="list-card">
-        <div class="label">Videos listed on this page <span id="list-count" class="muted"></span></div>
+        <div class="label">Video list <span id="list-count" class="muted"></span></div>
+        <div id="list-source" class="muted"></div>
+        <div id="list-other" class="muted hidden">This page lists <span id="other-count"></span> videos too.
+          <button id="use-this-page" class="small-btn">Use this page's list instead</button></div>
+        <div id="list-progress" class="status hidden"></div>
+        <div id="list-report" class="status hidden"></div>
         <div class="row list-tools">
           <button id="list-all" class="small-btn">Select all</button>
           <button id="list-none" class="small-btn">Select none</button>
         </div>
         <div id="list-items" class="list"></div>
-        <button id="send-list" class="primary">Send selected videos to their own folder</button>
-        <div class="muted" id="list-hint">Each video is sent as its own link. JDownloader checks them, removes any it can't download, and saves the rest in a folder named after this page.</div>
+        <div class="buttons">
+          <button id="list-collect">Collect next pages</button>
+          <button id="list-gather">Gather video links (test, sends nothing)</button>
+          <button id="send-list" class="primary">Send ticked videos to their own folder</button>
+          <button id="list-stop" class="hidden">Stop</button>
+          <button id="list-clear" class="small-btn">Clear list</button>
+        </div>
+        <div class="muted" id="list-hint">Send tries JDownloader's site handler first, then its deep analysis, then video links the phone finds on each page. The list stays here until you clear it, close Firefox or leave it for an hour. It is never saved.</div>
       </div>
 
       <div class="buttons">
@@ -101,7 +112,10 @@
         <h2>Behaviour</h2>
         <label class="check"><input type="checkbox" id="autostart"> Start downloading immediately (otherwise links wait in LinkGrabber)</label>
         <label class="check"><input type="checkbox" id="packageFromTitle"> Use the page title as the package name</label>
-        <label class="check"><input type="checkbox" id="videosOnly"> Videos only: remove thumbnails, text files and web pages that come with a video</label>
+        <label class="check"><input type="checkbox" id="videosOnly"> Videos only: remove thumbnails, text files, web pages and duplicate formats that come with a video</label>
+        <label class="check"><input type="checkbox" id="allowFrame"> Load a video page in a hidden frame when its source has no video link (same site only)</label>
+        <label class="field" for="maxPages">Most pages to follow when collecting a list</label>
+        <input type="number" id="maxPages" min="1" max="50" value="10">
         <button id="save" class="primary">Save</button>
         <div id="save-state" class="small"></div>
       </div>

@@ -10,6 +10,8 @@ const DEFAULTS = {
   cnl: { host: '192.168.0.10', port: 9666 },
   autostart: false,             // false = LinkGrabber (queue), true = start download
   videosOnly: true,             // drop thumbnails/text/pages that come along with a video
+  maxPages: 10,                 // how many "next" pages a list collection may follow
+  allowFrame: true,             // load a video page in a hidden same-site frame when its source has no video
   packageFromTitle: true,
 };
 
@@ -86,6 +88,46 @@ const EXTRA_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', '
 const isMedia = (l) => MEDIA_EXT.has(extOf(l));
 const isExtra = (l) => EXTRA_EXT.has(extOf(l));
 const isWebPage = (l) => /^(html?|php|aspx?|jsp)$/.test(extOf(l));
+const FORMAT_PREF = ['mp4', 'mkv', 'webm', 'mov', 'm4v'];
+
+/* "show.mp4", "show.ogv" and "show_512kb.mp4" are the same video in different formats. */
+function videoStem(l) {
+  let s = String(l.name || '').toLowerCase().replace(/\.[a-z0-9]{1,11}$/, '');
+  for (let i = 0; i < 3; i++) s = s.replace(/[._ -](\d{3,4}p|\d{2,5}kb|h\.?26[45]|hevc|x26[45]|hq|lq|sd|hd|mpeg4|ia|original|source)$/, '');
+  return s;
+}
+
+function biggest(list) {
+  return list.slice().sort((a, b) => (b.bytesTotal || 0) - (a.bytesTotal || 0)
+    || FORMAT_PREF.indexOf(extOf(a)) + 1 - (FORMAT_PREF.indexOf(extOf(b)) + 1) || 0)[0];
+}
+
+/* Decide what to keep from the links one send produced.
+   videosOnly: drop thumbnails/text/pages next to a video, and keep one copy per video when the same
+   video arrives in several formats. keepOne: a fallback method that may also have picked up other
+   videos from the page (previews, related clips), so keep only the largest video. */
+function evaluateLinks(found, { videosOnly = true, removeOffline = true, keepOne = false } = {}) {
+  const online = found.filter((l) => stateOf(l) === 'ONLINE');
+  const offline = found.filter((l) => stateOf(l) === 'OFFLINE');
+  const pending = found.filter(isPending);
+  const alive = online.concat(pending);
+  const media = alive.filter(isMedia);
+  const drop = new Set();
+  if (videosOnly && media.length) alive.filter(isExtra).forEach((l) => drop.add(l));
+  if (alive.some((x) => !isWebPage(x))) alive.filter(isWebPage).forEach((l) => drop.add(l));
+  if (media.length > 1 && (videosOnly || keepOne)) {
+    const groups = keepOne ? [media] : Object.values(media.reduce((g, l) => { (g[videoStem(l)] = g[videoStem(l)] || []).push(l); return g; }, {}));
+    for (const g of groups) {
+      if (g.length < 2) continue;
+      const best = biggest(g);
+      g.forEach((l) => { if (l !== best) drop.add(l); });
+    }
+  }
+  const kept = alive.filter((l) => !drop.has(l));
+  const resolved = kept.some((l) => !isExtra(l) && !isWebPage(l));
+  const remove = [...drop].concat(removeOffline ? offline : []);
+  return { kept, remove, offline, extras: [...drop], resolved };
+}
 
 function fmtSize(n) {
   if (!(n > 0)) return '';
@@ -186,15 +228,7 @@ async function trackedQueueViaMyJD(settings, links, packageName, source, opts = 
 
   if (!found.length) return { ok: false, message: explainNothing(info) };
 
-  const online = found.filter((l) => stateOf(l) === 'ONLINE');
-  const offline = found.filter((l) => stateOf(l) === 'OFFLINE');
-  const pending = found.filter(isPending);
-  const alive = online.concat(pending);
-  // Thumbnails, descriptions, subtitles and pages that came along with a real video.
-  const hasMedia = alive.some(isMedia);
-  const extras = alive.filter((l) => (videosOnly && hasMedia && isExtra(l)) || (isWebPage(l) && alive.some((x) => !isWebPage(x))));
-  const kept = alive.filter((l) => !extras.includes(l));
-  const remove = (removeOffline ? offline : []).concat(extras);
+  const { kept, remove, offline, extras } = evaluateLinks(found, { videosOnly, removeOffline });
 
   if (remove.length) await client.removeLinks(deviceId, remove.map((l) => l.uuid));
   const startNow = !!(settings.autostart && kept.length);
@@ -211,7 +245,7 @@ async function trackedQueueViaMyJD(settings, links, packageName, source, opts = 
   if (kept.length > 5) lines.push(`• …and ${kept.length - 5} more`);
   const removedBits = [];
   if (removeOffline && offline.length) removedBits.push(`${offline.length} offline`);
-  if (extras.length) removedBits.push(`${plural(extras.length, 'extra')} (thumbnails, text, pages)`);
+  if (extras.length) removedBits.push(`${plural(extras.length, 'extra')} (thumbnails, text, pages or duplicate formats)`);
   if (removedBits.length) lines.push(`Removed ${removedBits.join(' and ')}.`);
   if (!removeOffline && offline.length) lines.push(`${plural(offline.length, 'link')} came back offline and ${offline.length === 1 ? 'is' : 'are'} still in LinkGrabber.`);
   if (folder) lines.push(`Folder: ${folder}`);
@@ -350,8 +384,8 @@ const handlers = {
   },
 };
 
-browser.runtime.onMessage.addListener((msg) => {
+browser.runtime.onMessage.addListener((msg, sender) => {
   const h = handlers[msg && msg.type];
   if (!h) return Promise.resolve({ ok: false, message: `Unknown message ${msg && msg.type}` });
-  return h(msg).catch((err) => ({ ok: false, message: friendly(err), detail: err && err.detail }));
+  return h(msg, sender).catch((err) => ({ ok: false, message: friendly(err), detail: err && err.detail }));
 });

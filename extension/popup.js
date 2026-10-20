@@ -2,19 +2,23 @@
 
 const $ = (id) => document.getElementById(id);
 const show = (el, on = true) => el.classList.toggle('hidden', !on);
+const send = (msg) => browser.runtime.sendMessage(msg);
+const countOf = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-let page = null;          // { url, title }
+let page = null;          // { url, title, tabId }
 let candidates = [];      // [{url, kind, score}]
+let pageItems = [];       // [{url, title}] videos listed on the current page
+let pageItemsKind = '';   // 'video' | 'grid'
 let backend = 'myjd';
-let smartRunning = false;
-let items = [];          // [{url, title}] individual videos listed on the page
+let busy = false;         // a single-page send is running
+let session = null;       // the in-memory video list held by the background
 
 /* JDownloader silently ignores plain links it has no plugin for, which is typical of a video
    server URL without a file extension. "directhttp://" tells it to treat the link as a file.
    Streams (m3u8/mpd) and embed/player pages are left alone so JDownloader's plugins handle them. */
 function forJD(c) {
   if (!c) return null;
-  const direct = ['video', 'link', 'jsonld', 'meta'].includes(c.kind)
+  const direct = ['video', 'link', 'jsonld', 'meta', 'source'].includes(c.kind)
     && !/\.(m3u8|mpd)(\?|#|$)/i.test(c.url)
     && !/\/(embed|player|iframe)(\/|\?|$)/i.test(c.url)
     && !/(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv)/i.test(c.url);
@@ -28,19 +32,19 @@ function setStatus(text, ok) {
   show(el, true);
 }
 
-function setBusy(busy) {
-  for (const id of ['send-page', 'send-video', 'send-both']) $(id).disabled = busy || (id !== 'send-page' && !candidates.length);
-  $('send-smart').disabled = busy;
-  $('send-list').disabled = busy || !selectedItems().length;
+function setBusy(on) {
+  busy = on;
+  for (const id of ['send-page', 'send-video', 'send-both']) $(id).disabled = on || (id !== 'send-page' && !candidates.length);
+  $('send-smart').disabled = on;
 }
 
 async function inspectTab() {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return null;
-  page = { url: tab.url, title: tab.title || '' };
-
+  page = { url: tab.url, title: tab.title || '', tabId: tab.id };
   let frames = [];
   try {
+    await browser.tabs.executeScript(tab.id, { file: 'detect.js', allFrames: true, runAt: 'document_idle' });
     frames = await browser.tabs.executeScript(tab.id, { file: 'content.js', allFrames: true, runAt: 'document_idle' });
   } catch (e) {
     // Restricted page (about:, addons.mozilla.org, PDF viewer...). Page URL still works.
@@ -59,13 +63,13 @@ async function inspectTab() {
     .filter((c) => c.url !== page.url && !seen.has(c.url) && seen.add(c.url))
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
-  // Video lists only come from the top frame.
   const top = frames.find((f) => f && f.top && Array.isArray(f.items));
-  items = top ? top.items.filter((it) => it.url !== page.url) : [];
+  pageItems = top ? top.items.filter((it) => it.url !== page.url) : [];
+  pageItemsKind = top ? top.itemsKind : '';
   return { blob };
 }
 
-function render(info) {
+function renderPage(info) {
   $('page-url').textContent = page.url;
   const sel = $('video-select');
   sel.innerHTML = '';
@@ -79,73 +83,15 @@ function render(info) {
   $('video-count').textContent = candidates.length > 1 ? `(${candidates.length} found, best first)` : '';
   show($('video-none'), candidates.length === 0 && !info.blob);
   show($('video-blob'), candidates.length === 0 && info.blob);
-  // Only worth it when there is something to choose between, and only My.JDownloader can report back.
   const smart = backend === 'myjd' && candidates.length > 0;
   show($('send-smart'), smart);
   show($('smart-hint'), smart);
-  renderList();
   setBusy(false);
 }
 
-function selectedItems() {
-  return [...document.querySelectorAll('#list-items input:checked')].map((cb) => cb.value);
-}
+/* ---------- single-page sends ---------- */
 
-function updateListCount() {
-  const n = selectedItems().length;
-  $('list-count').textContent = `(${n} of ${items.length} selected)`;
-  $('send-list').textContent = n ? `Send ${n} video${n === 1 ? '' : 's'} to their own folder` : 'Select videos to send';
-  $('send-list').disabled = !n || smartRunning;
-}
-
-function renderList() {
-  const box = $('list-items');
-  box.innerHTML = '';
-  show($('list-card'), items.length > 0);
-  if (!items.length) return;
-  // On a watch page the list is usually "related videos", so start unticked there.
-  // On a gallery or channel page with no main video, start with everything ticked.
-  const preselect = candidates.length === 0;
-  for (const it of items) {
-    const label = document.createElement('label');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = it.url;
-    cb.checked = preselect;
-    cb.addEventListener('change', updateListCount);
-    const txt = document.createElement('div');
-    const t = document.createElement('div');
-    t.className = 't';
-    t.textContent = it.title || '(untitled)';
-    const u = document.createElement('div');
-    u.className = 'u';
-    u.textContent = it.url;
-    txt.append(t, u);
-    label.append(cb, txt);
-    box.appendChild(label);
-  }
-  updateListCount();
-}
-
-function selectAll(on) {
-  for (const cb of document.querySelectorAll('#list-items input')) cb.checked = on;
-  updateListCount();
-}
-
-async function sendList() {
-  const links = selectedItems();
-  if (!links.length) return;
-  smartRunning = true;
-  setBusy(true);
-  setStatus(`Sending ${links.length} videos for JDownloader to check…`);
-  const res = await browser.runtime.sendMessage({ type: 'smartQueue', mode: 'list', links, packageName: page.title, source: page.url });
-  smartRunning = false;
-  setStatus(res.message, !!res.ok);
-  setBusy(false);
-  updateListCount();
-}
-
-async function send(kind) {
+async function sendPage(kind) {
   const links = [];
   if (kind === 'page' || kind === 'both') links.push(page.url);
   if (kind === 'video' || kind === 'both') {
@@ -155,44 +101,155 @@ async function send(kind) {
   }
   if (!links.length) return;
   setBusy(true);
-  smartRunning = true;
   setStatus('Sending…');
-  const res = await browser.runtime.sendMessage({ type: 'queue', links, packageName: page.title, source: page.url });
-  smartRunning = false;
+  const res = await send({ type: 'queue', links, packageName: page.title, source: page.url });
   setStatus(res.message, !!res.ok);
   setBusy(false);
 }
 
 async function sendSmart() {
-  const links = [page.url, ...candidates.map(forJD)];
-  smartRunning = true;
   setBusy(true);
   setStatus('Sending links for JDownloader to check…');
-  const res = await browser.runtime.sendMessage({ type: 'smartQueue', links, packageName: page.title, source: page.url });
-  smartRunning = false;
+  const res = await send({ type: 'smartQueue', links: [page.url, ...candidates.map(forJD)], packageName: page.title, source: page.url });
   setStatus(res.message, !!res.ok);
   setBusy(false);
 }
 
-/* Live progress from the background while JDownloader checks the links. */
+/* ---------- video list (session) ---------- */
+
+const METHOD = {
+  site: 'site handler', deep: 'deep analysis', fetch: 'phone, page source', frame: 'phone, player frame',
+};
+
+function sizeText(n) {
+  if (!(n > 0)) return '';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return ` (${n.toFixed(i ? 1 : 0)} ${u[i]})`;
+}
+
+function itemStatus(it) {
+  const lines = [];
+  if (it.send) {
+    if (it.send.status === 'queued') {
+      const files = it.send.files.slice(0, 2).map((f) => `${f.name}${sizeText(f.size)}`).join(', ');
+      lines.push({ cls: 'ok', text: `✓ Queued via ${METHOD[it.send.method] || it.send.method}${files ? `: ${files}` : ''}${it.send.files.length > 2 ? ` +${it.send.files.length - 2}` : ''}` });
+    } else if (it.send.status === 'duplicate') {
+      lines.push({ cls: 'ok', text: '= Already in JDownloader' });
+    } else {
+      lines.push({ cls: 'err', text: `✗ Not sent: ${it.send.note}` });
+    }
+  }
+  if (it.gather) {
+    if (it.gather.status === 'found') {
+      lines.push({ cls: 'ok', text: `Phone found ${countOf(it.gather.candidates.length, 'link')} (${METHOD[it.gather.method] || it.gather.method})` });
+    } else {
+      lines.push({ cls: 'err', text: `Phone found nothing: ${it.gather.note}` });
+    }
+  }
+  return lines;
+}
+
+function renderSession() {
+  const card = $('list-card');
+  const haveOther = pageItems.length > 0 && (!session || session.page !== page.url);
+  show(card, !!session);
+  if (!session) return;
+
+  const running = session.running;
+  const ticked = session.items.filter((i) => i.selected).length;
+  $('list-count').textContent = `(${ticked} of ${session.items.length} ticked${session.pages > 1 ? `, ${session.pages} pages` : ''})`;
+  $('list-source').textContent = session.page === page.url ? 'From this page.' : `From another page: ${session.title || session.page}`;
+  show($('list-other'), haveOther && !running);
+  $('other-count').textContent = String(pageItems.length);
+
+  const prog = $('list-progress');
+  prog.textContent = session.progress || '';
+  show(prog, !!(running && session.progress));
+  const rep = $('list-report');
+  const last = session.lastMessage;
+  rep.textContent = last ? last.text : '';
+  rep.className = `status ${last ? (last.ok ? 'ok' : 'err') : ''}`;
+  show(rep, !!last && !running);
+
+  for (const id of ['list-collect', 'list-gather', 'send-list', 'list-all', 'list-none', 'list-clear']) $(id).disabled = !!running;
+  show($('list-stop'), !!running);
+  $('send-list').textContent = ticked ? `Send ${countOf(ticked, 'ticked video')} to their own folder` : 'Tick videos to send';
+  if (!ticked) $('send-list').disabled = true;
+  $('list-gather').disabled = !!running || !ticked;
+  $('list-collect').textContent = session.pagesNote ? `Collect next pages (last stop: ${session.pagesNote})` : 'Collect next pages';
+
+  const box = $('list-items');
+  const scroll = box.scrollTop;
+  box.innerHTML = '';
+  for (const it of session.items) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = it.url;
+    cb.checked = !!it.selected;
+    cb.disabled = !!running;
+    cb.addEventListener('change', () => send({ type: 'selectItems', urls: [it.url], selected: cb.checked }));
+    const txt = document.createElement('div');
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = `${session.pages > 1 ? `p${it.page} · ` : ''}${it.title || '(untitled)'}`;
+    const u = document.createElement('div');
+    u.className = 'u';
+    u.textContent = it.url;
+    txt.append(t, u);
+    for (const s of itemStatus(it)) {
+      const d = document.createElement('div');
+      d.className = `s ${s.cls}`;
+      d.textContent = s.text;
+      txt.appendChild(d);
+    }
+    label.append(cb, txt);
+    box.appendChild(label);
+  }
+  box.scrollTop = scroll;
+}
+
+async function refreshSession() {
+  session = await send({ type: 'getSession' });
+  renderSession();
+}
+
+async function startListFromPage() {
+  await send({
+    type: 'startSession', tabId: page.tabId, page: page.url, title: page.title, items: pageItems,
+    // Gallery-style pages start fully ticked; on a single video's page the list is usually "related videos".
+    preselect: pageItemsKind === 'video' && candidates.length === 0,
+  });
+  await refreshSession();
+}
+
+async function listAction(type) {
+  const res = await send({ type });
+  await refreshSession();
+  if (res && res.ok === false && res.message && !(session && session.lastMessage)) setStatus(res.message, false);
+}
+
+/* Live updates from the background (single-page progress and list changes). */
 browser.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === 'progress' && smartRunning) setStatus(msg.text);
+  if (!msg) return;
+  if (msg.type === 'progress' && busy) setStatus(msg.text);
+  if (msg.type === 'session-updated') refreshSession();
 });
 
-/* If the popup was closed during a check, show how it ended (for this page, within 10 minutes). */
 async function showLastResult() {
-  const last = await browser.runtime.sendMessage({ type: 'getLastResult', page: page.url });
+  const last = await send({ type: 'getLastResult', page: page.url });
   if (last) setStatus(`Last check on this page:\n${last.message}`, !!last.ok);
 }
 
-/* Settings live inside the popup: opening a separate options tab is unreliable on Firefox for Android. */
+/* ---------- settings view (inside the popup; separate tabs are unreliable on Android) ---------- */
+
 const MAIN_VIEWS = ['notconfigured', 'private-hint', 'main'];
-let hidden = {};
 
 function showSettings(e) {
   if (e) e.preventDefault();
-  hidden = {};
-  for (const id of MAIN_VIEWS) { hidden[id] = !$(id).classList.contains('hidden'); show($(id), false); }
+  for (const id of MAIN_VIEWS) show($(id), false);
   show($('settings-view'), true);
   $('heading').textContent = 'Settings';
   $('settings').textContent = '✕';
@@ -214,7 +271,7 @@ function toggleSettings(e) {
 }
 
 async function start() {
-  const settings = await browser.runtime.sendMessage({ type: 'getSettings' });
+  const settings = await send({ type: 'getSettings' });
   backend = settings.backend;
   $('target').textContent = settings.backend === 'cnl'
     ? `Sending to Click'n'Load at ${settings.cnl.host}`
@@ -225,7 +282,11 @@ async function start() {
   const info = await inspectTab();
   if (!page) { show($('private-hint')); return; }
   show($('main'));
-  render(info);
+  renderPage(info);
+  session = await send({ type: 'getSession' });
+  // No list yet and this page has one: start it, so it is still here when you come back.
+  if (!session && pageItems.length) await startListFromPage();
+  else renderSession();
   await showLastResult();
 }
 
@@ -234,13 +295,18 @@ async function init() {
   $('setup').addEventListener('click', showSettings);
   $('back').addEventListener('click', hideSettings);
   document.addEventListener('settings-saved', hideSettings);
-  $('send-page').addEventListener('click', () => send('page'));
-  $('send-video').addEventListener('click', () => send('video'));
-  $('send-both').addEventListener('click', () => send('both'));
+  $('send-page').addEventListener('click', () => sendPage('page'));
+  $('send-video').addEventListener('click', () => sendPage('video'));
+  $('send-both').addEventListener('click', () => sendPage('both'));
   $('send-smart').addEventListener('click', sendSmart);
-  $('send-list').addEventListener('click', sendList);
-  $('list-all').addEventListener('click', () => selectAll(true));
-  $('list-none').addEventListener('click', () => selectAll(false));
+  $('list-all').addEventListener('click', () => send({ type: 'selectItems', selected: true }));
+  $('list-none').addEventListener('click', () => send({ type: 'selectItems', selected: false }));
+  $('list-collect').addEventListener('click', () => listAction('collectPages'));
+  $('list-gather').addEventListener('click', () => listAction('gatherSession'));
+  $('send-list').addEventListener('click', () => listAction('sendSession'));
+  $('list-stop').addEventListener('click', () => send({ type: 'stopRun' }));
+  $('list-clear').addEventListener('click', () => listAction('clearSession'));
+  $('use-this-page').addEventListener('click', startListFromPage);
   await start();
 }
 

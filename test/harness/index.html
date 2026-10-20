@@ -38,13 +38,57 @@
     const scenario = new URLSearchParams(location.search).get('scenario') || 'watch';
     const related = Array.from({ length: 6 }, (_, i) => ({ url: 'https://example.com/video/' + (100 + i) + '/clip-' + i, title: 'Related clip ' + i }));
     window.__frames = scenario === 'gallery'
-      ? [{ page: 'https://example.com/channel/cats', title: 'Cats channel', top: true, blob: false, candidates: [], items: related }]
+      ? [{ page: 'https://example.com/channel/cats', title: 'Cats channel', top: true, blob: false, candidates: [], items: related, itemsKind: 'video' }]
       : [{ page: 'https://example.com/watch?v=1', title: 'Example video page', top: true, blob: false,
           candidates: [{ url: 'https://cdn.example.com/v.mp4', kind: 'video', score: 9000 }, { url: 'https://example.com/embed/1', kind: 'embed', score: 1200 }], items: related }];
     if (scenario === 'gallery') browser.tabs.query = async () => [{ id: 1, url: 'https://example.com/channel/cats', title: 'Cats channel' }];
+
+    // List tab stubs: what gather.js would answer inside the page.
+    browser.tabs.get = async (id) => (await browser.tabs.query())[0];
+    browser.tabs.sendMessage = async (tabId, m) => {
+      if (m.fn === 'resolveItem') {
+        const n = Number(m.url.split('/')[4]);
+        await new Promise((r) => setTimeout(r, 150));
+        return n % 2 ? { candidates: [{ url: 'https://cdn.example.com/' + n + '.mp4', kind: 'video', score: 900 }], method: n === 103 ? 'frame' : 'fetch', note: '' }
+          : { candidates: [], method: '', note: 'no video even after loading the player' };
+      }
+      if (m.fn === 'collectPages') {
+        const more = [106, 107].map((n) => ({ url: 'https://example.com/video/' + n + '/clip-' + (n - 100), title: 'Page two clip ' + (n - 100) }));
+        for (const fn of listeners) fn({ type: 'gather-page', page: 2, items: more }, { tab: { id: 1 } });
+        return { pages: 2, reason: 'no next page found' };
+      }
+      return true;
+    };
+
+    // Fake JDownloader: the site handler resolves odd clips, deep analysis resolves clip 2, the rest need the phone.
+    if (new URLSearchParams(location.search).get('fakejd')) {
+      let job = 1, uid = 1; const jobs = new Map();
+      class FakeMyJD {
+        constructor() { this.session = { sessiontoken: 'x' }; }
+        async restore() { return true; } async connect() {}
+        async getDefaultDownloadFolder() { return '/output'; }
+        async addLinks(dev, q) {
+          const id = job++; const link = q.links[0]; const n = Number((link.match(/(\d+)/g) || []).pop());
+          let out = [];
+          if (link.startsWith('directhttp://')) out = [{ name: 'clip' + n + '.mp4', availability: 'ONLINE', bytesTotal: 8e6 }];
+          else if (q.deepDecrypt) out = n === 102 ? [{ name: 'clip102.mp4', availability: 'ONLINE', bytesTotal: 12e6 }] : [];
+          else out = n % 2 ? [{ name: 'clip' + n + '.mp4', availability: 'ONLINE', bytesTotal: 30e6 }, { name: 'clip' + n + '.jpg', availability: 'ONLINE' }] : [];
+          jobs.set(id, out.map((l) => ({ ...l, uuid: uid++, jobUUID: id })));
+          return { id };
+        }
+        async queryJobLinks(dev, ids) { return ids.flatMap((i) => jobs.get(i) || []); }
+        async queryCrawlerJobs(dev, ids) { return ids.map((i) => ({ jobId: i, crawling: false, checking: false, crawled: (jobs.get(i) || []).length, unhandled: (jobs.get(i) || []).length ? 0 : 1 })); }
+        async removeLinks(dev, ids) { for (const [k, v] of jobs) jobs.set(k, v.filter((l) => !ids.includes(l.uuid))); }
+        async moveToDownloadlist() {}
+      }
+      window.__SMART_TEST = { pollMs: 50, timeoutMs: 2000, perLinkMs: 0, maxMs: 4000 };
+      window.__fakeJD = FakeMyJD;
+    }
   </script>
   <script src="/extension/myjd.js"></script>
+  <script>if (window.__fakeJD) MyJDClient.MyJD = window.__fakeJD;</script>
   <script src="/extension/background.js"></script>
+  <script src="/extension/session.js"></script>
   <script>
     // Pull the popup's markup in, then run its scripts.
     fetch('/extension/popup.html').then((r) => r.text()).then((html) => {

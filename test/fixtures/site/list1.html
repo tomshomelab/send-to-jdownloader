@@ -1,0 +1,11 @@
+<!doctype html><title>Sample list page 1</title>
+<header><nav><a href="/">Home</a><a href="v/999.html">Featured</a></nav></header>
+<main><h1>Sample list</h1><a class="card" href="v/101.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Sample clip 101" width="160" height="90"><span class="duration">3:01</span></a><a class="card" href="v/102.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Sample clip 102" width="160" height="90"><span class="duration">4:02</span></a><a class="card" href="v/103.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Sample clip 103" width="160" height="90"><span class="duration">5:03</span></a><a class="card" href="v/104.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Sample clip 104" width="160" height="90"><span class="duration">6:04</span></a></main>
+<div class="pager"><a href="list2.html">Next</a></div>
+<footer><a href="/about">About</a></footer><script>
+  // Minimal extension stub so gather.js can run in a normal page for testing.
+  window.__reports = [];
+  window.browser = { runtime: { onMessage: { addListener() {} }, sendMessage: async (m) => { window.__reports.push(m); } } };
+</script>
+<script src="/extension/detect.js"></script>
+<script src="/extension/gather.js"></script>

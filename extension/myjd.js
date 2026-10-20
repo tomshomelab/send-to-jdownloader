@@ -162,7 +162,7 @@
     /* Returns the collecting job, e.g. { id: 1700000000123 }. With assignJobID the crawled links
        carry that id, so queryJobLinks() can find exactly this batch. sourceUrl becomes the
        referrer JDownloader uses when it requests the links. */
-    async addLinks(deviceId, { links, packageName = null, autostart = false, destinationFolder = null, downloadPassword = null, extractPassword = null, sourceUrl = null, assignJobID = false }) {
+    async addLinks(deviceId, { links, packageName = null, autostart = false, destinationFolder = null, downloadPassword = null, extractPassword = null, sourceUrl = null, assignJobID = false, deepDecrypt = false }) {
       const list = Array.isArray(links) ? links : [links];
       const query = {
         links: list.join('\n'),
@@ -176,13 +176,17 @@
       };
       if (sourceUrl) query.sourceUrl = sourceUrl;
       if (assignJobID) query.assignJobID = true;
+      // Deep link analysis: JDownloader opens the page itself and collects every link inside it.
+      if (deepDecrypt) query.deepDecrypt = true;
       return this.call(deviceId, '/linkgrabberv2/addLinks', query);
     }
 
-    /* LinkGrabber links that came from one addLinks job, with their online status. */
-    async queryJobLinks(deviceId, jobId) {
+    /* LinkGrabber links that came from one or more addLinks jobs, with their online status.
+       Each link carries jobUUID so callers can tell which job it came from. */
+    async queryJobLinks(deviceId, jobIds) {
       const links = await this.call(deviceId, '/linkgrabberv2/queryLinks', {
-        jobUUIDs: [jobId],
+        jobUUIDs: Array.isArray(jobIds) ? jobIds : [jobIds],
+        jobUUID: true,
         availability: true,
         bytesTotal: true,
         url: true,
@@ -195,8 +199,8 @@
     }
 
     /* Crawler state for a job: [{ jobId, crawling, checking, crawled, broken, ... }] */
-    async queryCrawlerJobs(deviceId, jobId) {
-      const jobs = await this.call(deviceId, '/linkgrabberv2/queryLinkCrawlerJobs', { jobIds: [jobId], collectorInfo: true });
+    async queryCrawlerJobs(deviceId, jobIds) {
+      const jobs = await this.call(deviceId, '/linkgrabberv2/queryLinkCrawlerJobs', { jobIds: Array.isArray(jobIds) ? jobIds : [jobIds], collectorInfo: true });
       return Array.isArray(jobs) ? jobs : [];
     }
 

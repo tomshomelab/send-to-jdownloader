@@ -29,6 +29,14 @@ button:disabled { opacity: .4; cursor: default; }
 .list input { width: 20px; height: 20px; flex: none; margin-top: 1px; }
 .list .t { word-break: break-word; }
 .list .u { color: var(--muted); font-size: 11px; word-break: break-all; }
+.list .s { font-size: 12px; margin-top: 2px; word-break: break-word; }
+.list .s.ok { color: var(--ok); }
+.list .s.err { color: var(--err); }
+#list-card .buttons { margin-top: 8px; }
+#list-card .status { margin: 6px 0; }
+#list-other { margin: 6px 0; }
+#list-other button { margin-top: 6px; width: 100%; }
+input[type=number]#maxPages { width: 110px; }
 .list-tools { margin-top: 4px; }
 button.small-btn { padding: 8px 10px; font-size: 13px; margin: 0; flex: 1; }
 #list-card #send-list { width: 100%; margin-top: 4px; }
