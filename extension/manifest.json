@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Send to JDownloader",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Queue the current page URL, or the main video on it, in JDownloader 2 via My.JDownloader or local Click'n'Load.",
   "icons": {
     "48": "icons/icon.svg",
