@@ -70,6 +70,6 @@ console.log(`releases/${outName} + updates.json written`);
 
 // 5. commit + push
 run('git add -A');
-run(`git commit -m "Release ${version}"`);
+run(`git commit -m "Release ${version}" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`);
 if (!noPush) run('git push');
 console.log(`\nDone. Phones with ${addonId} will pick up ${version} on their next update check.`);

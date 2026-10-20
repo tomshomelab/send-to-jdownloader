@@ -1,7 +1,13 @@
 {
   "addons": {
     "send-to-jdownloader@tomshomelab.github.io": {
-      "updates": []
+      "updates": [
+        {
+          "version": "1.0.2",
+          "update_link": "https://raw.githubusercontent.com/tomshomelab/send-to-jdownloader/main/releases/send_to_jdownloader-1.0.2.xpi",
+          "update_hash": "sha256:3428dad766705389ead6a20f1d2ce05dd4ec83d15fa9435cbb33c17acd7b07e0"
+        }
+      ]
     }
   }
 }
