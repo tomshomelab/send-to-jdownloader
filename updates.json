@@ -6,6 +6,11 @@
           "version": "1.0.2",
           "update_link": "https://raw.githubusercontent.com/tomshomelab/send-to-jdownloader/main/releases/send_to_jdownloader-1.0.2.xpi",
           "update_hash": "sha256:3428dad766705389ead6a20f1d2ce05dd4ec83d15fa9435cbb33c17acd7b07e0"
+        },
+        {
+          "version": "1.0.3",
+          "update_link": "https://raw.githubusercontent.com/tomshomelab/send-to-jdownloader/main/releases/send_to_jdownloader-1.0.3.xpi",
+          "update_hash": "sha256:ec4b96fd8f7055c3819414e7b774c7077ba7d0a052ffda213055c67ecb3c4cd9"
         }
       ]
     }
