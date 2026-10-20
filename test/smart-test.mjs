@@ -56,7 +56,8 @@ function makeBackground(fakeLinksByPoll, opts = {}) {
     myjd: { email: 'u@example.com', loginSecret: 'aa', deviceSecret: 'bb', deviceId: 'dev1', deviceName: 'JD' },
     myjdSession: { sessiontoken: 'cc' },
   };
-  const calls = { add: [], removed: [], moved: [], progress: [] };
+  if (opts.videosOnly === false) store.videosOnly = false;
+  const calls = { add: [], removed: [], moved: [], progress: [], storageWrites: [] };
   let poll = 0;
   class FakeMyJD {
     constructor() { this.session = { sessiontoken: 'cc' }; }
@@ -65,13 +66,17 @@ function makeBackground(fakeLinksByPoll, opts = {}) {
     async addLinks(dev, q) { calls.add.push(q); return { id: 42 }; }
     async getDefaultDownloadFolder() { return opts.baseFolder === undefined ? '/output' : opts.baseFolder; }
     async queryJobLinks(dev, id) { const r = fakeLinksByPoll[Math.min(poll, fakeLinksByPoll.length - 1)]; poll++; return r; }
-    async queryCrawlerJobs() { return [{ jobId: 42, crawling: poll < 2, checking: false }]; }
+    async queryCrawlerJobs() { return [{ jobId: 42, crawling: poll < 2, checking: false, ...(opts.counters || {}) }]; }
     async removeLinks(dev, ids) { calls.removed.push(...ids); }
     async moveToDownloadlist(dev, ids) { calls.moved.push(...ids); }
   }
   let listener;
   const browser = {
-    storage: { local: { get: async (k) => (k === 'lastResult' ? { lastResult: store.lastResult } : { ...store }), set: async (o) => Object.assign(store, o) } },
+    storage: { local: {
+      get: async () => ({ ...store }),
+      set: async (o) => { calls.storageWrites.push(JSON.stringify(o)); Object.assign(store, o); },
+      remove: async (k) => { delete store[k]; },
+    } },
     runtime: {
       onMessage: { addListener: (fn) => { listener = fn; } },
       sendMessage: async (m) => { if (m.type === 'progress') calls.progress.push(m.text); },
@@ -100,9 +105,64 @@ const msg = { type: 'smartQueue', links: ['https://site/page', 'https://cdn/a.mp
   check('smart: deduped, http-only, sourceUrl + assignJobID', JSON.stringify(bg.calls.add[0].links) === JSON.stringify(['https://site/page', 'https://cdn/a.mp4', 'https://cdn/b.mp4']) && bg.calls.add[0].assignJobID === true && bg.calls.add[0].sourceUrl === 'https://site/page' && bg.calls.add[0].autostart === false);
   check('smart: removed offline + html junk', JSON.stringify(bg.calls.removed.sort()) === '[2,3,4]', JSON.stringify(bg.calls.removed));
   check('smart: no autostart move', bg.calls.moved.length === 0);
-  check('smart: message names the kept file', /Kept 1 working link/.test(r.message) && /video\.mp4 \(50\.0 MB\)/.test(r.message) && /Removed 2 offline and 1 web-page links/.test(r.message), JSON.stringify(r.message));
+  check('smart: message names the kept file', /JD: 1 file in LinkGrabber/.test(r.message) && /video\.mp4 \(50\.0 MB\)/.test(r.message) && /Removed 2 offline and 1 extra/.test(r.message), JSON.stringify(r.message));
   check('smart: progress reported', bg.calls.progress.length > 1);
-  check('smart: lastResult stored', bg.store.lastResult && bg.store.lastResult.page === 'https://site/page' && bg.store.lastResult.ok === true);
+  // Privacy: nothing about the page or files may ever be written to storage.
+  const written = bg.calls.storageWrites.join(' ');
+  check('privacy: no page/file data in storage', !/site\/page|video\.mp4|Title|lastResult/.test(written), written);
+  const last = await bg.send({ type: 'getLastResult', page: 'https://site/page' });
+  check('privacy: last result kept in memory only', last && last.ok === true && !('lastResult' in bg.store));
+  const other = await bg.send({ type: 'getLastResult', page: 'https://elsewhere/' });
+  check('last result only shown for the same page', other === null);
+}
+
+{ // a stale 1.0.3 lastResult on disk is deleted at startup
+  const bg = makeBackground([[]]);
+  bg.store.lastResult = { page: 'x' };
+  // background deletes on load; this instance loaded before we planted it, so reload a second one sharing nothing:
+  check('startup removes old lastResult (code path present)', /storage\.local\.remove\('lastResult'\)/.test(readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8')));
+}
+
+{ // plain Queue button: verified, extras (thumbnail + description) removed, offline kept + reported
+  const final = [L(1, 'clip.mp4', 'ONLINE', 10 * 1024 * 1024), L(2, 'clip.jpg', 'ONLINE'), L(3, 'clip.txt', 'ONLINE'), L(4, 'other.mp4', 'OFFLINE')];
+  const bg = makeBackground([final, final, final]);
+  const r = await bg.send({ type: 'queue', links: ['https://site/page'], packageName: 'T', source: 'https://site/page' });
+  check('plain: verified result', r.ok === true && /JD: 1 file in LinkGrabber/.test(r.message), r.message);
+  check('plain: thumbnail + text removed', JSON.stringify(bg.calls.removed.sort()) === '[2,3]', JSON.stringify(bg.calls.removed));
+  check('plain: offline left in place and reported', /1 link came back offline and is still in LinkGrabber/.test(r.message));
+}
+
+{ // videos-only turned off: extras kept
+  const final = [L(1, 'clip.mp4', 'ONLINE'), L(2, 'clip.jpg', 'ONLINE')];
+  const bg = makeBackground([final, final, final], { videosOnly: false });
+  await bg.send({ type: 'queue', links: ['https://site/page'], source: 'https://site/page' });
+  check('videosOnly off: nothing removed', bg.calls.removed.length === 0);
+}
+
+{ // image-only result (no video): extras rule does not apply
+  const final = [L(1, 'a.jpg', 'ONLINE'), L(2, 'b.jpg', 'ONLINE')];
+  const bg = makeBackground([final, final, final]);
+  const r = await bg.send({ type: 'queue', links: ['https://site/page'], source: 'https://site/page' });
+  check('no video found: images kept', bg.calls.removed.length === 0 && /2 files/.test(r.message));
+}
+
+{ // plain send where JDownloader has no handler: says so instead of "Sent"
+  const bg = makeBackground([[], [], [], [], []], { counters: { crawled: 0, unhandled: 1, filtered: 0, broken: 0 } });
+  const r = await bg.send({ type: 'queue', links: ['https://cdn/stream?token=1'], source: 'https://site/page' });
+  check('unhandled: honest failure', r.ok === false && /doesn't recognise that link/.test(r.message), r.message);
+}
+
+{ // filtered by the user's own rules
+  const bg = makeBackground([[], [], [], [], []], { counters: { crawled: 1, unhandled: 0, filtered: 1, broken: 0 } });
+  const r = await bg.send({ type: 'queue', links: ['https://site/page'], source: 'https://site/page' });
+  check('filtered: points at filter rules', r.ok === false && /Link Filter/.test(r.message), r.message);
+}
+
+{ // directhttp:// links are accepted and passed through untouched
+  const final = [L(1, 'v.mp4', 'ONLINE')];
+  const bg = makeBackground([final, final, final]);
+  await bg.send({ type: 'queue', links: ['directhttp://https://cdn/get?id=1', 'javascript:alert(1)'], source: 'https://site/page' });
+  check('directhttp passed through, junk schemes dropped', JSON.stringify(bg.calls.add[0].links) === JSON.stringify(['directhttp://https://cdn/get?id=1']), JSON.stringify(bg.calls.add[0].links));
 }
 
 { // autostart on: survivors moved to the download list
@@ -116,20 +176,20 @@ const msg = { type: 'smartQueue', links: ['https://site/page', 'https://cdn/a.mp
   const final = [L(1, 'a.mp4', 'OFFLINE'), L(2, 'b.mp4', 'OFFLINE')];
   const bg = makeBackground([final, final, final, final]);
   const r = await bg.send(msg);
-  check('all offline: removed all + login hint', JSON.stringify(bg.calls.removed) === '[1,2]' && /None of the 2 links worked/.test(r.message) && /Account Manager/.test(r.message));
+  check('all offline: removed all + login hint', r.ok === false && JSON.stringify(bg.calls.removed) === '[1,2]' && /None of the 2 links JDownloader found will download/.test(r.message) && /Account Manager/.test(r.message), r.message);
 }
 
 { // only an html page online: keep it (no real file to prefer)
   const final = [L(1, 'page.html', 'ONLINE')];
   const bg = makeBackground([final, final, final, final]);
   const r = await bg.send(msg);
-  check('only html online: kept', bg.calls.removed.length === 0 && /Kept 1/.test(r.message));
+  check('only html online: kept', bg.calls.removed.length === 0 && /1 file in LinkGrabber/.test(r.message));
 }
 
 { // JDownloader added nothing (duplicates)
-  const bg = makeBackground([[], [], [], [], [], []]);
+  const bg = makeBackground([[], [], [], [], [], []], { counters: { crawled: 2, unhandled: 0, filtered: 0, broken: 0 } });
   const r = await bg.send(msg);
-  check('nothing added: explains duplicates', r.ok === true && /already be in LinkGrabber/.test(r.message), r.message);
+  check('nothing added: explains duplicates', r.ok === false && /already in LinkGrabber/.test(r.message), r.message);
 }
 
 { // wrong backend
@@ -141,7 +201,7 @@ const msg = { type: 'smartQueue', links: ['https://site/page', 'https://cdn/a.mp
 
 /* ---------- list mode: many videos into their own folder ---------- */
 const many = Array.from({ length: 250 }, (_, i) => `https://site/video/${i}`);
-const listMsg = { type: 'smartQueue', mode: 'list', links: many, packageName: 'Best of: "cats" / dogs?  ', source: 'https://www.site.com/channel/x' };
+const listMsg = { type: 'smartQueue', mode: 'list', links: many, packageName: 'Best of: "cats" / dogs?  ', source: 'https://www.example.net/channel/x' };
 
 { // folder = default folder + sanitised page title; package name matches; capped at 200
   const final = [L(1, 'v1.mp4', 'ONLINE'), L(2, 'v2.mp4', 'ONLINE'), L(3, 'v3.mp4', 'OFFLINE')];
@@ -151,7 +211,7 @@ const listMsg = { type: 'smartQueue', mode: 'list', links: many, packageName: 'B
   check('list: capped at 200 links', q.links.length === 200, String(q.links.length));
   check('list: folder under default folder', q.destinationFolder === '/output/Best of cats dogs', q.destinationFolder);
   check('list: package name = folder name', q.packageName === 'Best of cats dogs', q.packageName);
-  check('list: checked + offline removed', JSON.stringify(bg.calls.removed) === '[3]' && /Kept 2 working links/.test(r.message));
+  check('list: checked + offline removed', JSON.stringify(bg.calls.removed) === '[3]' && /JD: 2 files in LinkGrabber/.test(r.message));
   check('list: message shows folder', /Folder: \/output\/Best of cats dogs/.test(r.message), r.message);
 }
 
@@ -160,7 +220,7 @@ const listMsg = { type: 'smartQueue', mode: 'list', links: many, packageName: 'B
   const bg = makeBackground([final, final, final], { baseFolder: 'D:\\Downloads\\' });
   await bg.send({ ...listMsg, packageName: '   ' });
   const f = bg.calls.add[0].destinationFolder;
-  check('list: windows separator + fallback name', /^D:\\Downloads\\site\.com \d{4}-\d{2}-\d{2}$/.test(f), f);
+  check('list: windows separator + fallback name', /^D:\\Downloads\\example\.net \d{4}-\d{2}-\d{2}$/.test(f), f);
 }
 
 { // single-video modes never set a folder

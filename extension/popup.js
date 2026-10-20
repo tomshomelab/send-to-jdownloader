@@ -9,6 +9,18 @@ let backend = 'myjd';
 let smartRunning = false;
 let items = [];          // [{url, title}] individual videos listed on the page
 
+/* JDownloader silently ignores plain links it has no plugin for, which is typical of a video
+   server URL without a file extension. "directhttp://" tells it to treat the link as a file.
+   Streams (m3u8/mpd) and embed/player pages are left alone so JDownloader's plugins handle them. */
+function forJD(c) {
+  if (!c) return null;
+  const direct = ['video', 'link', 'jsonld', 'meta'].includes(c.kind)
+    && !/\.(m3u8|mpd)(\?|#|$)/i.test(c.url)
+    && !/\/(embed|player|iframe)(\/|\?|$)/i.test(c.url)
+    && !/(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv)/i.test(c.url);
+  return direct ? `directhttp://${c.url}` : c.url;
+}
+
 function setStatus(text, ok) {
   const el = $('status');
   el.textContent = text;
@@ -138,18 +150,21 @@ async function send(kind) {
   if (kind === 'page' || kind === 'both') links.push(page.url);
   if (kind === 'video' || kind === 'both') {
     const v = $('video-select').value;
-    if (v) links.push(v);
+    const c = candidates.find((x) => x.url === v);
+    if (v) links.push(forJD(c) || v);
   }
   if (!links.length) return;
   setBusy(true);
+  smartRunning = true;
   setStatus('Sending…');
   const res = await browser.runtime.sendMessage({ type: 'queue', links, packageName: page.title, source: page.url });
+  smartRunning = false;
   setStatus(res.message, !!res.ok);
   setBusy(false);
 }
 
 async function sendSmart() {
-  const links = [page.url, ...candidates.map((c) => c.url)];
+  const links = [page.url, ...candidates.map(forJD)];
   smartRunning = true;
   setBusy(true);
   setStatus('Sending links for JDownloader to check…');
@@ -166,10 +181,8 @@ browser.runtime.onMessage.addListener((msg) => {
 
 /* If the popup was closed during a check, show how it ended (for this page, within 10 minutes). */
 async function showLastResult() {
-  const { lastResult } = await browser.storage.local.get('lastResult');
-  if (!lastResult || lastResult.page !== page.url || Date.now() - lastResult.at > 10 * 60 * 1000) return;
-  setStatus(`Last check on this page:
-${lastResult.message}`, !!lastResult.ok);
+  const last = await browser.runtime.sendMessage({ type: 'getLastResult', page: page.url });
+  if (last) setStatus(`Last check on this page:\n${last.message}`, !!last.ok);
 }
 
 /* Settings live inside the popup: opening a separate options tab is unreliable on Firefox for Android. */
@@ -203,6 +216,9 @@ function toggleSettings(e) {
 async function start() {
   const settings = await browser.runtime.sendMessage({ type: 'getSettings' });
   backend = settings.backend;
+  $('target').textContent = settings.backend === 'cnl'
+    ? `Sending to Click'n'Load at ${settings.cnl.host}`
+    : `Sending to ${settings.myjd.deviceName || 'your JDownloader'}`;
   const configured = settings.backend === 'cnl' ? !!settings.cnl.host : !!settings.myjd.loginSecret;
   if (!configured) { show($('notconfigured')); return; }
 

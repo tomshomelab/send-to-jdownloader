@@ -139,6 +139,27 @@ gallery page; nothing is ticked on a watch page, where the list is usually "rela
 **Send to their own folder**: each video is checked by JDownloader, broken ones are removed, and
 the rest download into `<JDownloader download folder>/<page title>`.
 
+Every My.JDownloader send waits for JDownloader's verdict before reporting. The popup lists
+what actually landed, or explains why nothing did: no handler for that link, already in the
+list, hidden by a Link Filter rule, or broken. Direct video file links are sent as
+`directhttp://…` so JDownloader treats them as files instead of silently ignoring them.
+With **Videos only** (on by default), thumbnails, description text files, subtitles and web
+pages that arrive alongside a video are removed. When no video is found, nothing is removed.
+
+## Privacy
+
+The extension stores **nothing about the sites you visit or what you download**:
+
+- Storage on the phone holds only settings, the two derived My.JDownloader keys and the
+  session token. Page addresses, titles and file names are never written to storage and
+  never logged.
+- The result of the last send is held in memory only, for the popup, and is wiped after
+  10 minutes or when Firefox closes.
+- Links travel to your JDownloader through My.JDownloader's relay, encrypted with a key
+  derived from your password, so the relay can't read them. With Click'n'Load they go
+  straight to your server on your own network.
+- Tests and fixtures in this repo use invented pages on example.com only.
+
 Links land in JDownloader's **LinkGrabber** (queued, not started) unless you tick
 *Start downloading immediately* in settings. The page title becomes the package name.
 

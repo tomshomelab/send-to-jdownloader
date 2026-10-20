@@ -31,8 +31,9 @@ const browser = {
   storage: { local: {
     get: async () => ({ ...store }),
     set: async (obj) => { Object.assign(store, obj); },
+    remove: async (k) => { delete store[k]; },
   } },
-  runtime: { onMessage: { addListener: (fn) => { listener = fn; } } },
+  runtime: { onMessage: { addListener: (fn) => { listener = fn; } }, sendMessage: async () => {} },
 };
 
 // load myjd.js then background.js into one sandbox, like the background page does

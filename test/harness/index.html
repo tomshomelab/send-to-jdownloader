@@ -18,7 +18,7 @@
     const listeners = [];
     const log = (...a) => { document.getElementById('log').textContent += a.join(' ') + '\n'; };
     window.browser = {
-      storage: { local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); log('store.set', JSON.stringify(o)); } } },
+      storage: { local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); log('store.set', JSON.stringify(o)); }, remove: async (k) => { delete store[k]; } } },
       runtime: {
         onMessage: { addListener: (fn) => { listeners.push(fn); } },
         // Like Firefox: every listener sees the message, the first one that returns a promise answers.

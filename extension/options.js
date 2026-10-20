@@ -44,6 +44,7 @@
     $('cnl-port').value = s.cnl.port || 9666;
     $('autostart').checked = !!s.autostart;
     $('packageFromTitle').checked = s.packageFromTitle !== false;
+    $('videosOnly').checked = s.videosOnly !== false;
     $('myjd-state').textContent = s.myjd.loginSecret ? `Connected as ${s.myjd.email}.` : 'Not connected yet.';
     if (s.myjd.deviceId) fillDevices([{ id: s.myjd.deviceId, name: s.myjd.deviceName || s.myjd.deviceId }], s.myjd.deviceId);
     else fillDevices([], '');
@@ -60,6 +61,7 @@
       cnl: { host: $('cnl-host').value.trim(), port: Number($('cnl-port').value) || 9666 },
       autostart: $('autostart').checked,
       packageFromTitle: $('packageFromTitle').checked,
+      videosOnly: $('videosOnly').checked,
       myjd: { ...s.myjd, deviceId: opt && opt.value ? opt.value : s.myjd.deviceId, deviceName: opt && opt.value ? opt.dataset.name : s.myjd.deviceName },
     };
     await msg({ type: 'saveSettings', settings });

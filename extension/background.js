@@ -9,6 +9,7 @@ const DEFAULTS = {
   myjdSession: null,            // { sessiontoken, regaintoken }
   cnl: { host: '192.168.0.10', port: 9666 },
   autostart: false,             // false = LinkGrabber (queue), true = start download
+  videosOnly: true,             // drop thumbnails/text/pages that come along with a video
   packageFromTitle: true,
 };
 
@@ -71,22 +72,20 @@ async function resolveDevice(settings, client) {
   return d.id;
 }
 
-async function queueViaMyJD(settings, links, packageName, source) {
-  return withSession(settings, async (client) => {
-    const deviceId = await resolveDevice(settings, client);
-    await client.addLinks(deviceId, { links, packageName, autostart: settings.autostart, sourceUrl: source });
-    const where = settings.autostart ? 'downloads' : 'LinkGrabber';
-    return `Sent ${links.length} link${links.length === 1 ? '' : 's'} to ${settings.myjd.deviceName || 'JDownloader'} (${where}).`;
-  });
-}
-
-/* ---------- "Find the working link": let JDownloader test every candidate ---------- */
+/* ---------- My.JDownloader sends: add, wait for JDownloader's verdict, tidy up ---------- */
 
 const SMART = { pollMs: 1500, timeoutMs: 60000, perLinkMs: 2000, maxMs: 5 * 60000, ...(globalThis.__SMART_TEST || {}) };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stateOf = (l) => String(l.availability || l.availableLinkState || 'UNKNOWN').toUpperCase();
 const isPending = (l) => /UNKNOWN|UNKOWN/.test(stateOf(l));
-const isWebPage = (l) => /\.(html?|php|aspx?|jsp)$/i.test(String(l.name || ''));
+const extOf = (l) => { const m = /\.([a-z0-9]{1,11})$/i.exec(String(l.name || '')); return m ? m[1].toLowerCase() : ''; };
+const MEDIA_EXT = new Set(['mp4', 'm4v', 'mkv', 'webm', 'mov', 'avi', 'flv', 'wmv', 'mpg', 'mpeg', '3gp', 'ogv', 'ts', 'm2ts', 'mts', 'vob',
+  'mp3', 'm4a', 'aac', 'opus', 'ogg', 'oga', 'flac', 'wav']);
+const EXTRA_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'svg', 'txt', 'nfo', 'json', 'xml', 'srt', 'vtt', 'ass',
+  'lrc', 'description', 'info', 'html', 'htm', 'php', 'asp', 'aspx', 'jsp', 'url']);
+const isMedia = (l) => MEDIA_EXT.has(extOf(l));
+const isExtra = (l) => EXTRA_EXT.has(extOf(l));
+const isWebPage = (l) => /^(html?|php|aspx?|jsp)$/.test(extOf(l));
 
 function fmtSize(n) {
   if (!(n > 0)) return '';
@@ -95,9 +94,12 @@ function fmtSize(n) {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return ` (${n.toFixed(i ? 1 : 0)} ${u[i]})`;
 }
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function progress(text) {
-  browser.runtime.sendMessage({ type: 'progress', text }).catch(() => { /* popup closed */ });
+  try {
+    browser.runtime.sendMessage({ type: 'progress', text }).catch(() => { /* popup closed */ });
+  } catch (_) { /* no listener context */ }
 }
 
 /* Folder names must be valid on Windows and Linux. */
@@ -112,8 +114,23 @@ function safeFolderName(name, fallback) {
   return clean || fallback;
 }
 
-async function smartQueueViaMyJD(settings, links, packageName, source, opts = {}) {
-  progress(`Sending ${links.length} link${links.length === 1 ? '' : 's'} for JDownloader to check…`);
+/* Explain an empty result using the crawler's own counters. */
+function explainNothing(info) {
+  if (info && info.unhandled > 0) return "JDownloader doesn't recognise that link as something it can download, so it added nothing. Try Find the working link, or Queue page URL.";
+  if (info && info.filtered > 0) return 'JDownloader found the link but one of your Link Filter rules hid it (JDownloader → Settings → Linkgrabber Filter).';
+  if (info && info.broken > 0) return 'JDownloader could not open that link (broken or blocked).';
+  if (info && info.crawled > 0) return 'JDownloader found it, but it is already in LinkGrabber or the download list, so nothing new was added.';
+  return 'JDownloader added nothing. The link may already be in LinkGrabber or the download list, or JDownloader has no handler for it.';
+}
+
+/* opts.mode: 'plain' (Queue buttons), 'find' (page + candidates), 'list' (many videos, own folder).
+   Returns { ok, message }; never reports success until JDownloader has shown what it actually added. */
+async function trackedQueueViaMyJD(settings, links, packageName, source, opts = {}) {
+  const mode = opts.mode || 'plain';
+  const removeOffline = mode !== 'plain';
+  const videosOnly = settings.videosOnly !== false;
+  const target = settings.myjd.deviceName || 'JDownloader';
+  progress(`Sending ${plural(links.length, 'link')} to ${target}…`);
   const { client, deviceId, job, folder } = await withSession(settings, async (c) => {
     const id = await resolveDevice(settings, c);
     let destinationFolder = null;
@@ -133,6 +150,7 @@ async function smartQueueViaMyJD(settings, links, packageName, source, opts = {}
   // Poll until the crawler has finished and every link has a definite online/offline state.
   const started = Date.now();
   let found = [];
+  let info = null;             // last crawler counters seen for this job
   let lastCount = -1;
   let stableRounds = 0;
   let failures = 0;
@@ -143,49 +161,61 @@ async function smartQueueViaMyJD(settings, links, packageName, source, opts = {}
       let crawlerBusy = null;
       try {
         const jobs = await client.queryCrawlerJobs(deviceId, jobId);
-        crawlerBusy = jobs.some((j) => j.crawling || j.checking);
+        if (jobs.length) {
+          crawlerBusy = jobs.some((j) => j.crawling || j.checking);
+          info = jobs.reduce((a, j) => ({
+            crawled: a.crawled + (j.crawled || 0), unhandled: a.unhandled + (j.unhandled || 0),
+            filtered: a.filtered + (j.filtered || 0), broken: a.broken + (j.broken || 0),
+          }), { crawled: 0, unhandled: 0, filtered: 0, broken: 0 });
+        } else {
+          crawlerBusy = false;   // crawler finished and was discarded
+        }
       } catch (_) { /* older JDownloader: fall back to link states only */ }
       failures = 0;
       stableRounds = found.length === lastCount ? stableRounds + 1 : 0;
       lastCount = found.length;
       const pending = found.filter(isPending).length;
-      progress(`JDownloader found ${found.length} link${found.length === 1 ? '' : 's'}, ${pending} still being checked…`);
+      progress(`${target} found ${plural(found.length, 'link')}, ${pending} still being checked…`);
       const crawlerDone = crawlerBusy === null ? stableRounds >= 2 : !crawlerBusy;
       if (crawlerDone && found.length && !pending) break;
-      if (crawlerDone && !found.length && stableRounds >= 3) break;
+      if (crawlerDone && !found.length && stableRounds >= 2) break;
     } catch (e) {
       if (++failures >= 3) throw e;
     }
   }
 
-  if (!found.length) {
-    return 'JDownloader added nothing new. The links may already be in LinkGrabber, so check there or clear the old entries and try again.';
-  }
+  if (!found.length) return { ok: false, message: explainNothing(info) };
 
   const online = found.filter((l) => stateOf(l) === 'ONLINE');
   const offline = found.filter((l) => stateOf(l) === 'OFFLINE');
   const pending = found.filter(isPending);
-  const realFiles = online.filter((l) => !isWebPage(l));
-  const junkPages = realFiles.length ? online.filter(isWebPage) : [];
-  const kept = online.filter((l) => !junkPages.includes(l)).concat(pending);
-  const remove = offline.concat(junkPages);
+  const alive = online.concat(pending);
+  // Thumbnails, descriptions, subtitles and pages that came along with a real video.
+  const hasMedia = alive.some(isMedia);
+  const extras = alive.filter((l) => (videosOnly && hasMedia && isExtra(l)) || (isWebPage(l) && alive.some((x) => !isWebPage(x))));
+  const kept = alive.filter((l) => !extras.includes(l));
+  const remove = (removeOffline ? offline : []).concat(extras);
 
   if (remove.length) await client.removeLinks(deviceId, remove.map((l) => l.uuid));
-  if (settings.autostart && kept.length) await client.moveToDownloadlist(deviceId, kept.map((l) => l.uuid));
+  const startNow = !!(settings.autostart && kept.length);
+  if (startNow) await client.moveToDownloadlist(deviceId, kept.map((l) => l.uuid));
 
   const lines = [];
   if (!kept.length) {
-    lines.push(`None of the ${found.length} links worked from JDownloader, so all were removed.`);
+    lines.push(`None of the ${plural(found.length, 'link')} JDownloader found will download${removeOffline ? ', so they were removed' : ''}.`);
     lines.push('The site may need you logged in. Add your account in JDownloader → Settings → Account Manager, or update JDownloader.');
-  } else {
-    const where = settings.autostart ? 'downloading' : 'in LinkGrabber';
-    lines.push(`Kept ${kept.length} working link${kept.length === 1 ? '' : 's'} ${where}:`);
-    for (const l of kept.slice(0, 5)) lines.push(`• ${l.name || l.url}${fmtSize(l.bytesTotal)}${isPending(l) ? ' (still checking)' : ''}`);
-    if (kept.length > 5) lines.push(`• …and ${kept.length - 5} more`);
-    if (remove.length) lines.push(`Removed ${offline.length} offline${junkPages.length ? ` and ${junkPages.length} web-page` : ''} link${remove.length === 1 ? '' : 's'}.`);
-    if (folder) lines.push(`Folder: ${folder}`);
+    return { ok: false, message: lines.join('\n') };
   }
-  return lines.join('\n');
+  lines.push(`${target}: ${plural(kept.length, 'file')} ${startNow ? 'downloading' : 'in LinkGrabber'}:`);
+  for (const l of kept.slice(0, 5)) lines.push(`• ${l.name || l.url}${fmtSize(l.bytesTotal)}${isPending(l) ? ' (still checking)' : ''}`);
+  if (kept.length > 5) lines.push(`• …and ${kept.length - 5} more`);
+  const removedBits = [];
+  if (removeOffline && offline.length) removedBits.push(`${offline.length} offline`);
+  if (extras.length) removedBits.push(`${plural(extras.length, 'extra')} (thumbnails, text, pages)`);
+  if (removedBits.length) lines.push(`Removed ${removedBits.join(' and ')}.`);
+  if (!removeOffline && offline.length) lines.push(`${plural(offline.length, 'link')} came back offline and ${offline.length === 1 ? 'is' : 'are'} still in LinkGrabber.`);
+  if (folder) lines.push(`Folder: ${folder}`);
+  return { ok: true, message: lines.join('\n') };
 }
 
 /* ---------- Local Click'n'Load backend (port 9666) ---------- */
@@ -223,10 +253,31 @@ async function testCNL(cnl) {
   }
 }
 
+/* ---------- Privacy ----------
+   Nothing about pages, sites or files is ever written to storage or logged. The last result is
+   kept in memory only, so the popup can show it if it was closed during a check, and is wiped
+   after 10 minutes or when Firefox closes. */
+
+let lastResult = null;
+let lastResultTimer = null;
+
+function rememberInMemory(page, result) {
+  lastResult = { page: page || '', ok: result.ok, message: result.message };
+  clearTimeout(lastResultTimer);
+  lastResultTimer = setTimeout(() => { lastResult = null; }, 10 * 60 * 1000);
+}
+
+// Version 1.0.3 wrote the last result to disk. Remove it on every start.
+browser.storage.local.remove('lastResult').catch(() => {});
+
 /* ---------- Message handlers ---------- */
 
 const handlers = {
   async getSettings() { return getSettings(); },
+
+  async getLastResult(msg) {
+    return lastResult && lastResult.page === msg.page ? { ok: lastResult.ok, message: lastResult.message } : null;
+  },
 
   async saveSettings(msg) {
     await browser.storage.local.set(msg.settings);
@@ -260,13 +311,11 @@ const handlers = {
 
   async queue(msg) {
     const settings = await getSettings();
-    const links = [...new Set((msg.links || []).filter((u) => /^https?:\/\//i.test(u)))];
+    const links = [...new Set((msg.links || []).filter((u) => /^(directhttp:\/\/)?https?:\/\//i.test(u)))];
     if (!links.length) throw new Error('Nothing to send.');
     const packageName = settings.packageFromTitle && msg.packageName ? String(msg.packageName).slice(0, 120) : null;
-    const message = settings.backend === 'cnl'
-      ? await queueViaCNL(settings, links, packageName, msg.source)
-      : await queueViaMyJD(settings, links, packageName, msg.source);
-    return { ok: true, message };
+    if (settings.backend === 'cnl') return { ok: true, message: await queueViaCNL(settings, links, packageName, msg.source) };
+    return trackedQueueViaMyJD(settings, links, packageName, msg.source, { mode: 'plain' });
   },
 
   /* msg.mode: 'find' (default) = page + video candidates, keep what works.
@@ -274,7 +323,7 @@ const handlers = {
   async smartQueue(msg) {
     const settings = await getSettings();
     const list = msg.mode === 'list';
-    const links = [...new Set((msg.links || []).filter((u) => /^https?:\/\//i.test(u)))].slice(0, list ? 200 : 12);
+    const links = [...new Set((msg.links || []).filter((u) => /^(directhttp:\/\/)?https?:\/\//i.test(u)))].slice(0, list ? 200 : 12);
     if (!links.length) throw new Error('Nothing to send.');
     let packageName = settings.packageFromTitle && msg.packageName ? String(msg.packageName).slice(0, 120) : null;
     let folderName = null;
@@ -292,12 +341,11 @@ const handlers = {
     }
     let result;
     try {
-      result = { ok: true, message: await smartQueueViaMyJD(settings, links, packageName, msg.source, { folderName }) };
+      result = await trackedQueueViaMyJD(settings, links, packageName, msg.source, { mode: list ? 'list' : 'find', folderName });
     } catch (err) {
       result = { ok: false, message: friendly(err) };
     }
-    // Remember the outcome so it can be shown if the popup was closed while JDownloader was checking.
-    await browser.storage.local.set({ lastResult: { ...result, page: msg.source || '', at: Date.now() } });
+    rememberInMemory(msg.source, result);
     return result;
   },
 };

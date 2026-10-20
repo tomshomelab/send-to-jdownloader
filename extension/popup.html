@@ -25,6 +25,7 @@
     </section>
 
     <section id="main" class="hidden">
+      <div id="target" class="muted"></div>
       <div class="card">
         <div class="label">Page</div>
         <div id="page-url" class="url"></div>
@@ -100,6 +101,7 @@
         <h2>Behaviour</h2>
         <label class="check"><input type="checkbox" id="autostart"> Start downloading immediately (otherwise links wait in LinkGrabber)</label>
         <label class="check"><input type="checkbox" id="packageFromTitle"> Use the page title as the package name</label>
+        <label class="check"><input type="checkbox" id="videosOnly"> Videos only: remove thumbnails, text files and web pages that come with a video</label>
         <button id="save" class="primary">Save</button>
         <div id="save-state" class="small"></div>
       </div>
